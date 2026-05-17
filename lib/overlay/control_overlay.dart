@@ -6,48 +6,64 @@ import '../services/overlay_service.dart';
 import '../services/script_repository.dart';
 
 class ControlOverlay extends StatefulWidget {
+  final bool isClicking;
+
+  final Script? activeScript;
   const ControlOverlay({
     super.key,
     required this.isClicking,
     this.activeScript,
   });
 
-  final bool isClicking;
-  final Script? activeScript;
-
   @override
   State<ControlOverlay> createState() => _ControlOverlayState();
 }
 
+class _ActionIcon extends StatelessWidget {
+  final String tooltip;
+
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback onPressed;
+  final bool filled;
+  const _ActionIcon({
+    required this.tooltip,
+    required this.icon,
+    required this.enabled,
+    required this.onPressed,
+    this.filled = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final button = filled
+        ? IconButton.filled(
+            onPressed: enabled ? onPressed : null,
+            icon: Icon(icon, size: 18),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(
+              minWidth: 32,
+              minHeight: 32,
+            ),
+          )
+        : IconButton(
+            onPressed: enabled ? onPressed : null,
+            icon: Icon(icon, size: 18),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(
+              minWidth: 32,
+              minHeight: 32,
+            ),
+          );
+
+    return Expanded(child: Tooltip(message: tooltip, child: button));
+  }
+}
+
 class _ControlOverlayState extends State<ControlOverlay> {
   Script? get _active => widget.activeScript;
-
-  Future<void> _start() async {
-    final script = _active;
-    if (script == null || script.steps.isEmpty) return;
-
-    final iterations = script.runMode.type == RunModeType.iterations
-        ? script.runMode.count
-        : -1;
-
-    await ClickerChannel.startClicking(
-      script: script,
-      iterations: iterations,
-    );
-  }
-
-  Future<void> _stop() async {
-    await ClickerChannel.stopClicking();
-  }
-
-  Future<void> _record() async {
-    final id = _active?.id;
-    if (id == null) return;
-    // Always load from disk — in-memory active script may lack latest steps.
-    final script = await ScriptRepository().getById(id);
-    if (script == null) return;
-    await OverlayService.switchToRecorder(script);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -62,7 +78,7 @@ class _ControlOverlayState extends State<ControlOverlay> {
         clipBehavior: Clip.hardEdge,
         color: Theme.of(context).colorScheme.surfaceContainerHigh,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -111,48 +127,32 @@ class _ControlOverlayState extends State<ControlOverlay> {
       ),
     );
   }
-}
 
-class _ActionIcon extends StatelessWidget {
-  const _ActionIcon({
-    required this.tooltip,
-    required this.icon,
-    required this.enabled,
-    required this.onPressed,
-    this.filled = false,
-  });
+  Future<void> _record() async {
+    final id = _active?.id;
+    if (id == null) return;
+    // Always load from disk — in-memory active script may lack latest steps.
+    final script = await ScriptRepository().getById(id);
+    if (script == null) return;
+    await OverlayService.switchToRecorder(script);
+  }
 
-  final String tooltip;
-  final IconData icon;
-  final bool enabled;
-  final VoidCallback onPressed;
-  final bool filled;
+  Future<void> _start() async {
+    final script = _active;
+    if (script == null || script.steps.isEmpty) return;
 
-  @override
-  Widget build(BuildContext context) {
-    final button = filled
-        ? IconButton.filled(
-            onPressed: enabled ? onPressed : null,
-            icon: Icon(icon, size: 18),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(
-              minWidth: 32,
-              minHeight: 32,
-            ),
-          )
-        : IconButton(
-            onPressed: enabled ? onPressed : null,
-            icon: Icon(icon, size: 18),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(
-              minWidth: 32,
-              minHeight: 32,
-            ),
-          );
+    final iterations = script.runMode.type == RunModeType.iterations
+        ? script.runMode.count
+        : -1;
 
-    return Expanded(child: Tooltip(message: tooltip, child: button));
+    await ClickerChannel.startClicking(
+      script: script,
+      iterations: iterations,
+    );
+  }
+
+  Future<void> _stop() async {
+    await ClickerChannel.stopClicking();
   }
 }
 

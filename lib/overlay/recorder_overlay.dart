@@ -266,17 +266,6 @@ class _RecorderOverlayState extends State<RecorderOverlay> {
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        final overlaySize = MediaQuery.sizeOf(context);
-        final mapper = _mapper!;
-        final points = steps.map((s) => Offset(s.x, s.y));
-        if (mapper.looksLikeLegacyOverlayLogical(points, overlaySize)) {
-          steps = steps
-              .map((s) {
-                final p = mapper.upgradeLegacy(Offset(s.x, s.y), overlaySize);
-                return s.copyWith(x: p.dx, y: p.dy);
-              })
-              .toList();
-        }
         setState(() => _steps = steps);
       });
     } catch (e) {

@@ -9,18 +9,18 @@ import '../services/overlay_service.dart';
 import '../services/script_repository.dart';
 
 class ScriptEditorScreen extends StatefulWidget {
-  const ScriptEditorScreen.edit({super.key, required this.scriptId})
-      : isNew = false,
-        draft = null;
+  final String scriptId;
 
+  final bool isNew;
+
+  final Script? draft;
   ScriptEditorScreen.create({super.key, required Script draft})
       : scriptId = draft.id,
         isNew = true,
         draft = draft;
-
-  final String scriptId;
-  final bool isNew;
-  final Script? draft;
+  const ScriptEditorScreen.edit({super.key, required this.scriptId})
+      : isNew = false,
+        draft = null;
 
   @override
   State<ScriptEditorScreen> createState() => _ScriptEditorScreenState();
@@ -30,85 +30,11 @@ class _ScriptEditorScreenState extends State<ScriptEditorScreen> {
   final _repo = ScriptRepository();
   final _nameController = TextEditingController();
   final _iterationsController = TextEditingController();
+  final _globalRadiusController = TextEditingController();
   Script? _script;
   bool _loading = true;
   bool _saving = false;
   StreamSubscription<void>? _scriptsSub;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-    _scriptsSub = OverlayService.scriptsChanged.listen((_) {
-      if (mounted && !widget.isNew) _load();
-    });
-  }
-
-  @override
-  void dispose() {
-    _scriptsSub?.cancel();
-    _nameController.dispose();
-    _iterationsController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    if (widget.isNew && widget.draft != null) {
-      setState(() {
-        _script = widget.draft;
-        _nameController.text = widget.draft!.name;
-        _loading = false;
-      });
-      return;
-    }
-    final script = await _repo.getById(widget.scriptId);
-    if (!mounted) return;
-    setState(() {
-      _script = script;
-      _nameController.text = script?.name ?? '';
-      if (script?.runMode.type == RunModeType.iterations) {
-        _iterationsController.text = '${script!.runMode.count}';
-      }
-      _loading = false;
-    });
-  }
-
-  Future<void> _save() async {
-    final script = _script;
-    if (script == null) return;
-    final name = _nameController.text.trim();
-    if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a script name')),
-      );
-      return;
-    }
-
-    setState(() => _saving = true);
-    final updated = script.copyWith(name: name);
-    await _repo.save(updated);
-    if (widget.isNew) {
-      await _repo.setActiveScriptId(updated.id);
-    }
-    await OverlayService.broadcastActiveScript();
-    if (!mounted) return;
-    setState(() => _saving = false);
-
-    if (widget.isNew) {
-      Navigator.of(context).pop(true);
-      return;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Script saved')),
-    );
-  }
-
-  void _updateScript(Script Function(Script) fn) {
-    final s = _script;
-    if (s == null) return;
-    setState(() => _script = fn(s));
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -162,15 +88,22 @@ class _ScriptEditorScreenState extends State<ScriptEditorScreen> {
             onChanged: (v) =>
                 _updateScript((s) => s.copyWith(tapRandomnessEnabled: v)),
           ),
-          _SliderRow(
-            label: 'Global radius (px)',
-            value: script.globalRadiusPx.toDouble(),
-            min: 0,
-            max: 100,
-            divisions: 20,
-            onChanged: (v) =>
-                _updateScript((s) => s.copyWith(globalRadiusPx: v.round())),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _globalRadiusController,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: const InputDecoration(
+              labelText: 'Global radius (px)',
+              hintText: '0 = disabled',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (v) {
+              final n = int.tryParse(v);
+              _updateScript((s) => s.copyWith(globalRadiusPx: n ?? 0));
+            },
           ),
+          const SizedBox(height: 32),
           _SliderRow(
             label: 'Default min delay (ms)',
             value: script.defaultMinDelayMs.toDouble(),
@@ -319,9 +252,94 @@ class _ScriptEditorScreenState extends State<ScriptEditorScreen> {
       ),
     );
   }
+
+  @override
+  void dispose() {
+    _scriptsSub?.cancel();
+    _nameController.dispose();
+    _iterationsController.dispose();
+    _globalRadiusController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _scriptsSub = OverlayService.scriptsChanged.listen((_) {
+      if (mounted && !widget.isNew) _load();
+    });
+  }
+
+  Future<void> _load() async {
+    if (widget.isNew && widget.draft != null) {
+      setState(() {
+        _script = widget.draft;
+        _nameController.text = widget.draft!.name;
+        _loading = false;
+      });
+      return;
+    }
+    final script = await _repo.getById(widget.scriptId);
+    if (!mounted) return;
+    setState(() {
+      _script = script;
+      _nameController.text = script?.name ?? '';
+      if (script?.runMode.type == RunModeType.iterations) {
+        _iterationsController.text = '${script!.runMode.count}';
+      }
+      _globalRadiusController.text =
+          script?.globalRadiusPx == 0 ? '' : '${script?.globalRadiusPx ?? ''}';
+      _loading = false;
+    });
+  }
+
+  Future<void> _save() async {
+    final script = _script;
+    if (script == null) return;
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a script name')),
+      );
+      return;
+    }
+
+    setState(() => _saving = true);
+    final updated = script.copyWith(name: name);
+    await _repo.save(updated);
+    if (widget.isNew) {
+      await _repo.setActiveScriptId(updated.id);
+    }
+    await OverlayService.broadcastActiveScript();
+    if (!mounted) return;
+    setState(() => _saving = false);
+
+    if (widget.isNew) {
+      Navigator.of(context).pop(true);
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Script saved')),
+    );
+  }
+
+  void _updateScript(Script Function(Script) fn) {
+    final s = _script;
+    if (s == null) return;
+    setState(() => _script = fn(s));
+  }
 }
 
 class _SliderRow extends StatelessWidget {
+  final String label;
+
+  final double value;
+  final double min;
+  final double max;
+  final int? divisions;
+  final ValueChanged<double> onChanged;
   const _SliderRow({
     required this.label,
     required this.value,
@@ -330,13 +348,6 @@ class _SliderRow extends StatelessWidget {
     required this.onChanged,
     this.divisions,
   });
-
-  final String label;
-  final double value;
-  final double min;
-  final double max;
-  final int? divisions;
-  final ValueChanged<double> onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -358,6 +369,11 @@ class _SliderRow extends StatelessWidget {
 }
 
 class _StepTile extends StatefulWidget {
+  final int index;
+
+  final TapStep step;
+  final ValueChanged<TapStep> onChanged;
+  final VoidCallback onDelete;
   const _StepTile({
     super.key,
     required this.index,
@@ -365,11 +381,6 @@ class _StepTile extends StatefulWidget {
     required this.onChanged,
     required this.onDelete,
   });
-
-  final int index;
-  final TapStep step;
-  final ValueChanged<TapStep> onChanged;
-  final VoidCallback onDelete;
 
   @override
   State<_StepTile> createState() => _StepTileState();
@@ -379,35 +390,6 @@ class _StepTileState extends State<_StepTile> {
   bool _expanded = false;
   late final TextEditingController _delayController;
   late final TextEditingController _radiusController;
-
-  @override
-  void initState() {
-    super.initState();
-    _delayController = TextEditingController(
-      text: widget.step.delayAfterMs?.toString() ?? '',
-    );
-    _radiusController = TextEditingController(
-      text: widget.step.radiusPx?.toString() ?? '',
-    );
-  }
-
-  @override
-  void didUpdateWidget(covariant _StepTile oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.step.delayAfterMs != widget.step.delayAfterMs) {
-      _delayController.text = widget.step.delayAfterMs?.toString() ?? '';
-    }
-    if (oldWidget.step.radiusPx != widget.step.radiusPx) {
-      _radiusController.text = widget.step.radiusPx?.toString() ?? '';
-    }
-  }
-
-  @override
-  void dispose() {
-    _delayController.dispose();
-    _radiusController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -487,6 +469,35 @@ class _StepTileState extends State<_StepTile> {
             ),
         ],
       ),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _StepTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.step.delayAfterMs != widget.step.delayAfterMs) {
+      _delayController.text = widget.step.delayAfterMs?.toString() ?? '';
+    }
+    if (oldWidget.step.radiusPx != widget.step.radiusPx) {
+      _radiusController.text = widget.step.radiusPx?.toString() ?? '';
+    }
+  }
+
+  @override
+  void dispose() {
+    _delayController.dispose();
+    _radiusController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _delayController = TextEditingController(
+      text: widget.step.delayAfterMs?.toString() ?? '',
+    );
+    _radiusController = TextEditingController(
+      text: widget.step.radiusPx?.toString() ?? '',
     );
   }
 }

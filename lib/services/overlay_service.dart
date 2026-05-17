@@ -10,13 +10,13 @@ import 'script_repository.dart';
 
 /// Mode change pushed inside the overlay isolate (shareData round-trip is unreliable).
 class OverlayModeUpdate {
+  final String mode;
+
+  final String? scriptId;
   const OverlayModeUpdate({
     required this.mode,
     this.scriptId,
   });
-
-  final String mode;
-  final String? scriptId;
 }
 
 class OverlayService {
@@ -33,34 +33,23 @@ class OverlayService {
   /// a script run starts/ends so the scripts list can refresh.
   static final StreamController<void> _scriptsChangedController =
       StreamController<void>.broadcast();
-  static Stream<void> get scriptsChanged => _scriptsChangedController.stream;
-  static void notifyScriptsChanged() {
-    if (!_scriptsChangedController.isClosed) _scriptsChangedController.add(null);
-  }
-
   /// ID of the script currently executing in [ClickerEngine], or null when idle.
   /// Set by [OverlayCommandBridge] via Kotlin log events.
   static String? _runningScriptId;
-  static String? get runningScriptId => _runningScriptId;
-  static void setRunningScriptId(String? id) => _runningScriptId = id;
-
-  /// Listen from [_OverlayApp] only (overlay isolate).
-  static Stream<OverlayModeUpdate> get modeUpdates =>
-      _modeUpdatesController.stream;
-
-  static void _emitModeUpdate(OverlayModeUpdate update) {
-    if (!_modeUpdatesController.isClosed) {
-      _modeUpdatesController.add(update);
-    }
-  }
-
   /// Android overlay plugin treats these as **dp** (see OverlayService.dpToPx).
   /// Size the window to fit content — do not squeeze widgets below their minimums.
   static const int controlWidth = 300;
-  static const int controlHeight = 200;
 
+  static const int controlHeight = 100;
+  /// Listen from [_OverlayApp] only (overlay isolate).
+  static Stream<OverlayModeUpdate> get modeUpdates =>
+      _modeUpdatesController.stream;
   static Stream<dynamic> get overlayListener =>
       FlutterOverlayWindow.overlayListener;
+
+  static String? get runningScriptId => _runningScriptId;
+
+  static Stream<void> get scriptsChanged => _scriptsChangedController.stream;
 
   /// Push active script to overlay (SharedPreferences is unreliable across engines).
   static Future<void> broadcastActiveScript() async {
@@ -71,6 +60,10 @@ class OverlayService {
       'action': 'activeScriptUpdated',
       'script': script?.toJson(),
     });
+  }
+  static void debugLog(String msg) {
+    // ignore: avoid_print
+    print('[OverlayService] $msg');
   }
 
   /// Shows the control island if overlay permission is granted.
@@ -105,6 +98,10 @@ class OverlayService {
     await FlutterOverlayWindow.shareData(data);
   }
 
+  static void notifyScriptsChanged() {
+    if (!_scriptsChangedController.isClosed) _scriptsChangedController.add(null);
+  }
+
   static RecorderPayload? parseRecorderPayload(dynamic data) {
     if (data is! Map) return null;
     final mode = data['mode'] as String?;
@@ -134,6 +131,8 @@ class OverlayService {
   static Future<void> sendCommand(Map<String, dynamic> data) async {
     await FlutterOverlayWindow.shareData(data);
   }
+
+  static void setRunningScriptId(String? id) => _runningScriptId = id;
 
   static Future<void> showControl() async {
     final prefs = await SharedPreferences.getInstance();
@@ -228,9 +227,33 @@ class OverlayService {
     debugLog('switchToRecorder: returned from lock (transitioning=$_transitioning)');
   }
 
-  static void debugLog(String msg) {
-    // ignore: avoid_print
-    print('[OverlayService] $msg');
+  static void _emitModeUpdate(OverlayModeUpdate update) {
+    if (!_modeUpdatesController.isClosed) {
+      _modeUpdatesController.add(update);
+    }
+  }
+
+  static Future<void> _showControlWindow() async {
+    debugLog('_showControlWindow: enter');
+    await _withOverlayLock(() async {
+      await FlutterOverlayWindow.showOverlay(
+        height: controlHeight,
+        width: controlWidth,
+        alignment: OverlayAlignment.centerRight,
+        flag: OverlayFlag.defaultFlag,
+        overlayTitle: 'Tap Control',
+        overlayContent: 'Run scripts',
+        enableDrag: true,
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      await ClickerChannel.ensureOverlayEngineRegistered();
+      // This runs in the MAIN isolate, so _emitModeUpdate is invisible to the
+      // overlay isolate's _OverlayApp. Use notifyOverlay (shareData) instead —
+      // it is cross-isolate and safe to await from the main isolate.
+      await notifyOverlay({'mode': controlFlag});
+      await broadcastActiveScript();
+    });
   }
 
   static Future<void> _withOverlayLock(Future<void> Function() action) async {
@@ -258,29 +281,6 @@ class OverlayService {
     } finally {
       _transitioning = false;
     }
-  }
-
-  static Future<void> _showControlWindow() async {
-    debugLog('_showControlWindow: enter');
-    await _withOverlayLock(() async {
-      await FlutterOverlayWindow.showOverlay(
-        height: controlHeight,
-        width: controlWidth,
-        alignment: OverlayAlignment.centerRight,
-        flag: OverlayFlag.defaultFlag,
-        overlayTitle: 'Tap Control',
-        overlayContent: 'Run scripts',
-        enableDrag: true,
-      );
-
-      await Future<void>.delayed(const Duration(milliseconds: 400));
-      await ClickerChannel.ensureOverlayEngineRegistered();
-      // This runs in the MAIN isolate, so _emitModeUpdate is invisible to the
-      // overlay isolate's _OverlayApp. Use notifyOverlay (shareData) instead —
-      // it is cross-isolate and safe to await from the main isolate.
-      await notifyOverlay({'mode': controlFlag});
-      await broadcastActiveScript();
-    });
   }
 }
 

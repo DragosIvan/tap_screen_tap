@@ -56,23 +56,4 @@ class ScreenCoordinateMapper {
         logicalDelta.dy * density,
       );
 
-  bool looksLikeLegacyOverlayLogical(
-    Iterable<Offset> points,
-    Size overlayLogicalSize,
-  ) {
-    if (points.isEmpty || overlayLogicalSize.isEmpty) return false;
-    final maxX = points.map((p) => p.dx).reduce((a, b) => a > b ? a : b);
-    final maxY = points.map((p) => p.dy).reduce((a, b) => a > b ? a : b);
-    return maxX <= overlayLogicalSize.width * 1.05 &&
-        maxY <= overlayLogicalSize.height * 1.05 &&
-        maxX < metrics.widthPx * 0.6;
-  }
-
-  Offset upgradeLegacy(Offset overlayLogical, Size overlaySize) {
-    final scaleX =
-        overlaySize.width > 0 ? metrics.widthPx / overlaySize.width : density;
-    final scaleY =
-        overlaySize.height > 0 ? metrics.heightPx / overlaySize.height : density;
-    return Offset(overlayLogical.dx * scaleX, overlayLogical.dy * scaleY);
-  }
 }
