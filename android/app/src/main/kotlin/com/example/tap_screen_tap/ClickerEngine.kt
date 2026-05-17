@@ -66,6 +66,12 @@ class ClickerEngine(
             "stepCount" to script.steps.size,
         ))
 
+        val displayMetrics = service.resources.displayMetrics
+        val legacyLogicalCoords = GestureHelper.scriptUsesLegacyLogicalCoords(
+            displayMetrics,
+            script.steps,
+        )
+
         try {
             while (currentCoroutineContext().isActive) {
                 if (iterationsRequested >= 0 && iterationsCompleted >= iterationsRequested) {
@@ -80,13 +86,21 @@ class ClickerEngine(
                 for ((index, step) in script.steps.withIndex()) {
                     if (!currentCoroutineContext().isActive) break
 
-                    val coords = resolveTapCoords(script, step)
+                    val stepPx = GestureHelper.stepToPhysical(
+                        displayMetrics,
+                        step,
+                        legacyLogicalCoords,
+                    )
+                    val coords = resolveTapCoords(script, stepPx)
                     val actualX = coords.x
                     val actualY = coords.y
                     val jitterApplied = coords.jitterApplied
                     val radiusUsed = coords.radiusUsed
                     val tapOk = GestureHelper.dispatchTap(service, actualX, actualY)
                     totalTaps++
+                    if (tapOk) {
+                        TapRippleOverlay.show(service, actualX, actualY)
+                    }
 
                     emitLog(script.id, "tapPerformed", mapOf(
                         "stepIndex" to index,
@@ -279,7 +293,7 @@ class ClickerEngine(
     data class StepConfig(
         val x: Float,
         val y: Float,
-        val delayAfterMs: Int?,
-        val radiusPx: Int?,
+        val delayAfterMs: Int? = null,
+        val radiusPx: Int? = null,
     )
 }

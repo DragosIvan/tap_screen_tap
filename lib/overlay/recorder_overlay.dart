@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 
-import '../models/script.dart';
 import '../models/tap_step.dart';
 import '../services/clicker_channel.dart';
 import '../services/overlay_service.dart';
+import '../services/screen_coordinates.dart';
 import '../services/script_repository.dart';
 
 class RecorderOverlay extends StatefulWidget {
-  const RecorderOverlay({super.key, this.scriptId});
-
   final String? scriptId;
+
+  const RecorderOverlay({super.key, this.scriptId});
 
   @override
   State<RecorderOverlay> createState() => _RecorderOverlayState();
@@ -19,20 +19,78 @@ class _RecorderOverlayState extends State<RecorderOverlay> {
   static const double _defaultMarkerDiameter = 36;
 
   final _repo = ScriptRepository();
+  final _stackKey = GlobalKey();
   String? _scriptId;
   List<TapStep> _steps = [];
   bool _tapRandomnessEnabled = false;
   int _globalRadiusPx = 0;
+  ScreenCoordinateMapper? _mapper;
   bool _loading = true;
   String? _error;
   int? _draggingIndex;
-  Future<void> _saveChain = Future.value();
+
+  RenderBox? get _overlayBox {
+    final box = _stackKey.currentContext?.findRenderObject();
+    return box is RenderBox ? box : null;
+  }
 
   @override
-  void initState() {
-    super.initState();
-    _scriptId = widget.scriptId;
-    _loadScript();
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(
+        backgroundColor: Colors.black54,
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_error != null) {
+      return Scaffold(
+        backgroundColor: Colors.black87,
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_error!, textAlign: TextAlign.center),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: _cancel,
+                  child: const Text('Back'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: Colors.black26,
+      body: Builder(
+        builder: (context) {
+          final mq = MediaQuery.of(context);
+          final topPad = mq.padding.top;
+          // ignore: avoid_print
+          print('[RecorderOverlay] build: size=${mq.size}  padding=${mq.padding}  viewPadding=${mq.viewPadding}  devicePixelRatio=${mq.devicePixelRatio}  topPad=$topPad');
+          return SizedBox.expand(
+            child: Stack(
+              key: _stackKey,
+              fit: StackFit.expand,
+              children: [
+                GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTapDown: (d) => _addPoint(d.localPosition),
+                  child: const SizedBox.expand(),
+                ),
+                ...List.generate(_steps.length, _buildMarker),
+              _buildTopBar(context),
+            ],
+          ),
+        );
+      },
+    ),
+  );
   }
 
   @override
@@ -42,6 +100,135 @@ class _RecorderOverlayState extends State<RecorderOverlay> {
       _scriptId = widget.scriptId;
       _loadScript();
     }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _scriptId = widget.scriptId;
+    _loadScript();
+  }
+
+  void _addPoint(Offset localPosition) {
+    if (_draggingIndex != null) return;
+    final box = _overlayBox;
+    final mapper = _mapper;
+    if (box == null || mapper == null) return;
+    final global = box.localToGlobal(localPosition);
+    final physical = mapper.overlayLocalToPhysical(box, localPosition);
+    // ignore: avoid_print
+    print('[RecorderOverlay] addPoint: local=$localPosition  global=$global  physical=$physical');
+    setState(() {
+      _steps = [
+        ..._steps,
+        TapStep(x: physical.dx, y: physical.dy),
+      ];
+    });
+  }
+
+  Widget _buildMarker(int index) {
+    final step = _steps[index];
+    final box = _overlayBox;
+    final mapper = _mapper;
+    final diameter = _markerDiameter(step);
+    final half = diameter / 2;
+    final isDragging = _draggingIndex == index;
+    final labelSize = (diameter * 0.38).clamp(10.0, 18.0);
+    final logical = (box != null && mapper != null)
+        ? mapper.physicalToOverlayLocal(box, step.x, step.y)
+        : Offset(step.x, step.y);
+
+    return Positioned(
+      left: logical.dx - half,
+      top: logical.dy - half,
+      child: GestureDetector(
+        onPanStart: (_) => setState(() => _draggingIndex = index),
+        onPanUpdate: (d) => _movePoint(index, d.delta),
+        onPanEnd: (_) => setState(() => _draggingIndex = null),
+        child: Material(
+          elevation: isDragging ? 8 : 2,
+          shape: const CircleBorder(),
+          color: Colors.redAccent.withValues(alpha: 0.85),
+          child: SizedBox(
+            width: diameter,
+            height: diameter,
+            child: Center(
+              child: Text(
+                '${index + 1}',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: labelSize,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopBar(BuildContext context) {
+    final pad = MediaQuery.paddingOf(context);
+    final top = pad.top + 8;
+    final left = pad.left + 8;
+    final right = pad.right + 8;
+
+    return Positioned(
+      top: top,
+      left: left,
+      right: right,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // Info pill
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.black87,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              'Tap to add · Drag to move',
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+            ),
+          ),
+          // Action buttons
+          Material(
+            color: Colors.black87,
+            borderRadius: BorderRadius.circular(12),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: 'Cancel',
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: _cancel,
+                ),
+                IconButton(
+                  tooltip: 'Undo',
+                  icon: Icon(
+                    Icons.undo,
+                    color: _steps.isEmpty ? Colors.white38 : Colors.white,
+                  ),
+                  onPressed: _steps.isEmpty ? null : _undo,
+                ),
+                IconButton(
+                  tooltip: 'Save',
+                  icon: const Icon(Icons.check, color: Colors.white),
+                  onPressed: _save,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _cancel() async {
+    await OverlayService.switchToControl();
   }
 
   Future<void> _loadScript() async {
@@ -67,11 +254,30 @@ class _RecorderOverlayState extends State<RecorderOverlay> {
         return;
       }
 
+      final screen = await ClickerChannel.getDisplayMetrics();
+      var steps = List<TapStep>.from(script.steps);
+
       setState(() {
         _tapRandomnessEnabled = script.tapRandomnessEnabled;
         _globalRadiusPx = script.globalRadiusPx;
-        _steps = List.from(script.steps);
+        _mapper = ScreenCoordinateMapper(screen);
         _loading = false;
+      });
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final overlaySize = MediaQuery.sizeOf(context);
+        final mapper = _mapper!;
+        final points = steps.map((s) => Offset(s.x, s.y));
+        if (mapper.looksLikeLegacyOverlayLogical(points, overlaySize)) {
+          steps = steps
+              .map((s) {
+                final p = mapper.upgradeLegacy(Offset(s.x, s.y), overlaySize);
+                return s.copyWith(x: p.dx, y: p.dy);
+              })
+              .toList();
+        }
+        setState(() => _steps = steps);
       });
     } catch (e) {
       setState(() {
@@ -81,198 +287,42 @@ class _RecorderOverlayState extends State<RecorderOverlay> {
     }
   }
 
-  /// Diameter in logical pixels. Matches [ClickerEngine] tap spread: step
-  /// [TapStep.radiusPx] overrides [Script.globalRadiusPx] when randomness is on.
   double _markerDiameter(TapStep step) {
-    final stepRadius = step.radiusPx;
-    if (stepRadius != null && stepRadius > 0) {
-      return stepRadius * 2;
-    }
-    if (_tapRandomnessEnabled && _globalRadiusPx > 0) {
-      return _globalRadiusPx * 2;
+    final mapper = _mapper;
+    final physicalRadius = step.radiusPx ??
+        (_tapRandomnessEnabled && _globalRadiusPx > 0 ? _globalRadiusPx : null);
+    if (physicalRadius != null && physicalRadius > 0 && mapper != null) {
+      return (physicalRadius * 2) / mapper.density;
     }
     return _defaultMarkerDiameter;
   }
 
-  Future<void> _saveSteps() async {
-    if (_scriptId == null) return;
-    final id = _scriptId!;
-    final steps = List<TapStep>.from(_steps);
-    _saveChain = _saveChain.then((_) async {
-      try {
-        final ok = await _repo.updateSteps(id, steps);
-        if (!ok) {
-          // ignore: avoid_print
-          print('[RecorderOverlay] _saveSteps: script not found for id=$id');
-        }
-      } catch (e, st) {
-        // ignore: avoid_print
-        print('[RecorderOverlay] _saveSteps ERROR: $e\n$st');
-      }
-    });
-    await _saveChain;
-  }
-
-  void _addPoint(Offset position) {
-    if (_draggingIndex != null) return;
-    setState(() {
-      _steps = [
-        ..._steps,
-        TapStep(x: position.dx, y: position.dy),
-      ];
-    });
-    _saveSteps();
-  }
-
   void _movePoint(int index, Offset delta) {
+    final mapper = _mapper;
+    if (mapper == null) return;
     final step = _steps[index];
+    final d = mapper.overlayDeltaToPhysical(delta);
     setState(() {
       _steps[index] = step.copyWith(
-        x: step.x + delta.dx,
-        y: step.y + delta.dy,
+        x: step.x + d.dx,
+        y: step.y + d.dy,
       );
     });
   }
 
-  Future<void> _undo() async {
-    if (_steps.isEmpty) return;
-    setState(() => _steps = _steps.sublist(0, _steps.length - 1));
-    await _saveSteps();
+  Future<void> _persistSteps() async {
+    if (_scriptId == null) return;
+    await _repo.updateSteps(_scriptId!, _steps);
   }
 
-  Future<void> _finish() async {
-    await _saveSteps();
+  Future<void> _save() async {
+    await _persistSteps();
     await ClickerChannel.notifyRecorderDone();
     await OverlayService.switchToControl();
   }
 
-  Widget _buildMarker(int index) {
-    final step = _steps[index];
-    final diameter = _markerDiameter(step);
-    final half = diameter / 2;
-    final isDragging = _draggingIndex == index;
-    final labelSize = (diameter * 0.38).clamp(10.0, 18.0);
-
-    return Positioned(
-      left: step.x - half,
-      top: step.y - half,
-      child: GestureDetector(
-        onPanStart: (_) => setState(() => _draggingIndex = index),
-        onPanUpdate: (d) => _movePoint(index, d.delta),
-        onPanEnd: (_) {
-          setState(() => _draggingIndex = null);
-          _saveSteps();
-        },
-        child: Material(
-          elevation: isDragging ? 8 : 2,
-          shape: const CircleBorder(),
-          color: Colors.redAccent.withValues(alpha: 0.85),
-          child: SizedBox(
-            width: diameter,
-            height: diameter,
-            child: Center(
-              child: Text(
-                '${index + 1}',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: labelSize,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) {
-      return const Scaffold(
-        backgroundColor: Colors.black54,
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (_error != null) {
-      return Scaffold(
-        backgroundColor: Colors.black87,
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(_error!, textAlign: TextAlign.center),
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: _finish,
-                  child: const Text('Back'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Scaffold(
-      backgroundColor: Colors.black26,
-      body: SizedBox.expand(
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTapDown: (d) => _addPoint(d.globalPosition),
-              child: const SizedBox.expand(),
-            ),
-            ...List.generate(_steps.length, _buildMarker),
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 8,
-              left: 16,
-              right: 16,
-              child: IgnorePointer(
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.black87,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    'Tap empty area to add · Drag markers to move (${_steps.length} steps)',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.white, fontSize: 13),
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              bottom: MediaQuery.of(context).padding.bottom + 16,
-              left: 16,
-              right: 16,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.tonal(
-                      onPressed: _steps.isEmpty ? null : _undo,
-                      child: const Text('Undo'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: _finish,
-                      child: const Text('Done'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  void _undo() {
+    if (_steps.isEmpty) return;
+    setState(() => _steps = _steps.sublist(0, _steps.length - 1));
   }
 }

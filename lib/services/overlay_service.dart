@@ -84,7 +84,7 @@ class OverlayService {
     // Live fullscreen recorder — do not replace it.
     if (inRecorder && active) return;
 
-    // Overlay missing, or stale recorder prefs — create the island once.
+    // Overlay missing or stale recorder prefs — (re)create the island.
     if (!active || inRecorder) {
       await showControl();
       return;
@@ -149,7 +149,11 @@ class OverlayService {
       await prefs.setString(_modeKey, controlFlag);
       await prefs.remove(_scriptIdKey);
 
-      // Close first to avoid the stopSelf() race in showOverlay.
+      // Cached overlay engine keeps Dart state across close/show. Switch UI
+      // to control *before* resizing the window, or recorder markers/toolbar
+      // render inside the small island.
+      _emitModeUpdate(const OverlayModeUpdate(mode: controlFlag));
+
       if (await FlutterOverlayWindow.isActive()) {
         await FlutterOverlayWindow.closeOverlay();
         await Future<void>.delayed(const Duration(milliseconds: 350));
@@ -165,9 +169,10 @@ class OverlayService {
         enableDrag: true,
       );
 
-      await Future<void>.delayed(const Duration(milliseconds: 400));
-      await ClickerChannel.ensureOverlayEngineRegistered();
       _emitModeUpdate(const OverlayModeUpdate(mode: controlFlag));
+
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      await ClickerChannel.ensureOverlayEngineRegistered();
       debugLog('switchToControl: done');
     });
   }
@@ -191,25 +196,33 @@ class OverlayService {
         await Future<void>.delayed(const Duration(milliseconds: 350));
       }
 
-      debugLog('switchToRecorder: calling showOverlay fullCover');
+      // Use topLeft + startPosition(0,0) to avoid two bugs in the plugin's Java:
+      //  1. OverlayAlignment.center uses Gravity.CENTER, which misinterprets the
+      //     y-offset as "from screen center" rather than "from screen top", cutting
+      //     off the bottom of the screen.
+      //  2. When startY == DEFAULT_XY the service sets dy = -statusBarHeightPx()
+      //     (px value) then calls dpToPx(dy), double-converting it by density.
+      //     Passing startPosition(0,0) bypasses this path entirely → params.y = 0,
+      //     which positions the window at the physical screen top.
+      debugLog('switchToRecorder: calling showOverlay fullCover (topLeft, y=0)');
       await FlutterOverlayWindow.showOverlay(
         height: WindowSize.fullCover,
         width: WindowSize.matchParent,
-        alignment: OverlayAlignment.center,
+        alignment: OverlayAlignment.topLeft,
+        startPosition: const OverlayPosition(0, 0),
         flag: OverlayFlag.defaultFlag,
         overlayTitle: 'Tap Recorder',
         overlayContent: 'Record tap positions',
         enableDrag: false,
       );
-      debugLog('switchToRecorder: showOverlay done, waiting 500ms');
-
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-
       debugLog('switchToRecorder: emitting modeUpdate');
       _emitModeUpdate(OverlayModeUpdate(
         mode: recorderFlag,
         scriptId: script.id,
       ));
+
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      await ClickerChannel.ensureOverlayEngineRegistered();
       debugLog('switchToRecorder: done');
     });
     debugLog('switchToRecorder: returned from lock (transitioning=$_transitioning)');
@@ -260,12 +273,13 @@ class OverlayService {
         enableDrag: true,
       );
 
-      await Future<void>.delayed(const Duration(milliseconds: 350));
+      await Future<void>.delayed(const Duration(milliseconds: 400));
       await ClickerChannel.ensureOverlayEngineRegistered();
-      // Update the overlay Dart UI directly — notifyOverlay (shareData) hangs
-      // when called from the overlay isolate because the Java reply is never sent.
-      _emitModeUpdate(const OverlayModeUpdate(mode: controlFlag));
-      // broadcastActiveScript uses notifyOverlay from main isolate — fire-and-forget.
+      // This runs in the MAIN isolate, so _emitModeUpdate is invisible to the
+      // overlay isolate's _OverlayApp. Use notifyOverlay (shareData) instead —
+      // it is cross-isolate and safe to await from the main isolate.
+      await notifyOverlay({'mode': controlFlag});
+      await broadcastActiveScript();
     });
   }
 }

@@ -106,6 +106,7 @@ class _OverlayAppState extends State<_OverlayApp> {
       if (update.mode == OverlayService.recorderFlag) {
         _scriptId = update.scriptId;
       } else {
+        _scriptId = null;
         _controlRefreshToken++;
       }
     });
@@ -127,16 +128,20 @@ class _OverlayAppState extends State<_OverlayApp> {
   Future<void> _bootstrap() async {
     final config = await OverlayService.readLaunchConfig();
     if (!mounted) return;
+    final rawMode = config['mode'] as String? ?? OverlayService.controlFlag;
+    final rawScriptId = config['scriptId'] as String?;
+
+    // Only honour a recorder mode from prefs when there is an explicit scriptId.
+    // Stale `recorder` prefs from a crashed/killed session would otherwise
+    // render the recorder toolbar inside the small island window.
+    final mode = (rawMode == OverlayService.recorderFlag && rawScriptId != null)
+        ? OverlayService.recorderFlag
+        : OverlayService.controlFlag;
+
     setState(() {
-      _mode = config['mode'] as String? ?? OverlayService.controlFlag;
-      _scriptId = config['scriptId'] as String?;
+      _mode = mode;
+      _scriptId = mode == OverlayService.recorderFlag ? rawScriptId : null;
       _ready = true;
-    });
-    // Fallback if shareData was missed: stop spinner after timeout.
-    Future<void>.delayed(const Duration(seconds: 2), () {
-      if (mounted && _mode == OverlayService.recorderFlag) {
-        setState(() {});
-      }
     });
   }
 
@@ -221,7 +226,7 @@ class _OverlayAppState extends State<_OverlayApp> {
       );
     }
 
-    if (_mode == OverlayService.recorderFlag) {
+    if (_mode == OverlayService.recorderFlag && _scriptId != null) {
       return SizedBox.expand(
         child: RecorderOverlay(
           key: ValueKey('recorder_$_scriptId'),
@@ -232,7 +237,7 @@ class _OverlayAppState extends State<_OverlayApp> {
     return ColoredBox(
       color: Colors.transparent,
       child: Align(
-        alignment: Alignment.center,
+        alignment: Alignment.centerRight,
         child: ControlOverlay(
           key: ValueKey('control_$_controlRefreshToken'),
           isClicking: _isClicking,

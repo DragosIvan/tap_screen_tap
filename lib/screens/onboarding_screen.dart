@@ -70,7 +70,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             )
           : null,
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -138,7 +138,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ),
                 ),
               ],
-              const Spacer(),
+              const SizedBox(height: 32),
               FilledButton.icon(
                 onPressed: _checking ? null : _refresh,
                 icon: const Icon(Icons.refresh),

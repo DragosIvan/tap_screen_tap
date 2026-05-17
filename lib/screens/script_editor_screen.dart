@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -27,19 +29,26 @@ class ScriptEditorScreen extends StatefulWidget {
 class _ScriptEditorScreenState extends State<ScriptEditorScreen> {
   final _repo = ScriptRepository();
   final _nameController = TextEditingController();
+  final _iterationsController = TextEditingController();
   Script? _script;
   bool _loading = true;
   bool _saving = false;
+  StreamSubscription<void>? _scriptsSub;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _scriptsSub = OverlayService.scriptsChanged.listen((_) {
+      if (mounted && !widget.isNew) _load();
+    });
   }
 
   @override
   void dispose() {
+    _scriptsSub?.cancel();
     _nameController.dispose();
+    _iterationsController.dispose();
     super.dispose();
   }
 
@@ -57,6 +66,9 @@ class _ScriptEditorScreenState extends State<ScriptEditorScreen> {
     setState(() {
       _script = script;
       _nameController.text = script?.name ?? '';
+      if (script?.runMode.type == RunModeType.iterations) {
+        _iterationsController.text = '${script!.runMode.count}';
+      }
       _loading = false;
     });
   }
@@ -221,38 +233,34 @@ class _ScriptEditorScreenState extends State<ScriptEditorScreen> {
               if (type == RunModeType.untilStopped) {
                 _updateScript((s) => s.copyWith(runMode: const RunMode.untilStopped()));
               } else {
+                final current = _script;
+                final count = current?.runMode.type == RunModeType.iterations
+                    ? current!.runMode.count
+                    : 3;
+                _iterationsController.text = '$count';
                 _updateScript(
-                  (s) => s.copyWith(
-                    runMode: RunMode.iterations(
-                      s.runMode.type == RunModeType.iterations
-                          ? s.runMode.count
-                          : 3,
-                    ),
-                  ),
+                  (s) => s.copyWith(runMode: RunMode.iterations(count)),
                 );
               }
             },
           ),
           if (script.runMode.type == RunModeType.iterations) ...[
             const SizedBox(height: 8),
-            Row(
-              children: [
-                const Text('Iteration count:'),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Slider(
-                    value: script.runMode.count.toDouble(),
-                    min: 1,
-                    max: 100,
-                    divisions: 99,
-                    label: '${script.runMode.count}',
-                    onChanged: (v) => _updateScript(
-                      (s) => s.copyWith(runMode: RunMode.iterations(v.round())),
-                    ),
-                  ),
-                ),
-                Text('${script.runMode.count}'),
-              ],
+            TextField(
+              controller: _iterationsController,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(
+                labelText: 'Number of iterations',
+                hintText: 'e.g. 10',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (v) {
+                final n = int.tryParse(v);
+                if (n != null && n > 0) {
+                  _updateScript((s) => s.copyWith(runMode: RunMode.iterations(n)));
+                }
+              },
             ),
           ],
           const SizedBox(height: 16),
@@ -283,10 +291,13 @@ class _ScriptEditorScreenState extends State<ScriptEditorScreen> {
                 });
               },
               itemBuilder: (context, index) {
+                final step = script.steps[index];
                 return _StepTile(
-                  key: ValueKey('step_$index'),
+                  key: ValueKey(
+                    'step_${step.x}_${step.y}_${step.delayAfterMs}_${step.radiusPx}',
+                  ),
                   index: index,
-                  step: script.steps[index],
+                  step: step,
                   onChanged: (step) {
                     _updateScript((s) {
                       final steps = List<TapStep>.from(s.steps);

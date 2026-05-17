@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 
 import '../models/script.dart';
+import 'screen_coordinates.dart';
 
 class ClickerChannel {
   static const _method = MethodChannel('com.example.tap_screen_tap/clicker');
@@ -57,5 +58,14 @@ class ClickerChannel {
     try {
       await _method.invokeMethod<void>('notifyRecorderDone');
     } catch (_) {}
+  }
+
+  /// Full display size in physical pixels (for mapping overlay taps to gestures).
+  static Future<ScreenMetrics> getDisplayMetrics() async {
+    final map = await _method.invokeMethod<Map<dynamic, dynamic>>('getDisplayMetrics');
+    if (map == null) {
+      return const ScreenMetrics(widthPx: 1080, heightPx: 1920, density: 2);
+    }
+    return ScreenMetrics.fromMap(map);
   }
 }

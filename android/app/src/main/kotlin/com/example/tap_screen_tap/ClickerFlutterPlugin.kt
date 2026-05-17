@@ -81,6 +81,16 @@ class ClickerFlutterPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 ClickerEventSink.emit("recorderDone", emptyMap<String, Any>())
                 result.success(null)
             }
+            "getDisplayMetrics" -> {
+                val dm = ctx!!.resources.displayMetrics
+                result.success(
+                    mapOf(
+                        "widthPx" to dm.widthPixels,
+                        "heightPx" to dm.heightPixels,
+                        "density" to dm.density.toDouble(),
+                    ),
+                )
+            }
             else -> result.notImplemented()
         }
     }
