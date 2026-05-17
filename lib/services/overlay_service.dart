@@ -40,7 +40,7 @@ class OverlayService {
   /// Size the window to fit content — do not squeeze widgets below their minimums.
   static const int controlWidth = 300;
 
-  static const int controlHeight = 100;
+  static const int controlHeight = 150;
   /// Listen from [_OverlayApp] only (overlay isolate).
   static Stream<OverlayModeUpdate> get modeUpdates =>
       _modeUpdatesController.stream;

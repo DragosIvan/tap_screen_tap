@@ -73,7 +73,7 @@ class _ScriptsTabState extends State<ScriptsTab> {
                     value: isActive,
                     onChanged: (v) => _setActive(script.id, v),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
